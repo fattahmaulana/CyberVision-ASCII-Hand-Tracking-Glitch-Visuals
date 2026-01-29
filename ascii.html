@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAW NOISE x SMOOTH ASCII</title>
+    <!-- Font Share Tech Mono untuk tampilan cyber yang solid -->
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        /* CSS: Full Screen Layout & Reset */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            overflow: hidden;
+        }
+
+        #input_video {
+            display: none;
+        }
+
+        #output_canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* Loading UI */
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00FF41;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 24px;
+            z-index: 10;
+            text-shadow: 0 0 15px #00FF41;
+            pointer-events: none;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+    </style>
+
+    <!-- MediaPipe Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+    <div id="loading">SYSTEM_BOOT //<br>LOADING RAW DATA STREAM...</div>
+    
+    <video id="input_video" playsinline></video>
+    <canvas id="output_canvas"></canvas>
+
+    <script>
+        /**
+         * KONFIGURASI VISUAL
+         */
+        
+        // --- 1. SETTING ASCII (YANG KEREN & SMOOTH) ---
+        const ASCII_CHARS = "@%#*+=-:.  "; // Karakter padat
+        const FONT_SIZE = 14;               // Ukuran ideal untuk detail
+        const ASCII_COLOR = "#00FF41";      // Hijau Matrix Terang
+        
+        // --- 2. SETTING NOISE "RAW PUNK" (Sesuai Request) ---
+        const RAW_NOISE_INTENSITY = 220; // Noise sangat kasar
+        const BLACK_CRUSH_POINT = 70;    // Hitam pekat (threshold)
+        const EXPOSURE_GAIN = 3.8;       // Overexposed
+
+        // Setup DOM
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d', { willReadFrequently: true });
+        const loadingScreen = document.getElementById('loading');
+
+        let canvasW, canvasH;
+
+        function resizeCanvas() {
+            canvasW = window.innerWidth;
+            canvasH = window.innerHeight;
+            canvasElement.width = canvasW;
+            canvasElement.height = canvasH;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        /**
+         * RENDER PIPELINE
+         */
+        function onResults(results) {
+            loadingScreen.style.display = 'none';
+
+            // 1. BACKGROUND DRAWING (Mirrored)
+            canvasCtx.save();
+            canvasCtx.translate(canvasW, 0);
+            canvasCtx.scale(-1, 1);
+            canvasCtx.drawImage(results.image, 0, 0, canvasW, canvasH);
+            canvasCtx.restore();
+
+            // 2. PIXEL MANIPULATION (RAW NOISE EFFECT)
+            let imageData = canvasCtx.getImageData(0, 0, canvasW, canvasH);
+            let data = imageData.data;
+            const length = data.length;
+
+            // Loop ini membuat latar belakang hancur/rusak
+            for (let i = 0; i < length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+
+                // Grayscale
+                let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+                // LOGIKA RAW PUNK:
+                // A. Black Crush & Exposure
+                let exposed = (gray - BLACK_CRUSH_POINT) * EXPOSURE_GAIN;
+
+                // B. Massive Raw Noise
+                const noise = (Math.random() * 2.0 - 1.0) * RAW_NOISE_INTENSITY;
+                let finalPixel = exposed + noise;
+                
+                // C. Clamp (Batasi 0-255)
+                finalPixel = Math.max(0, Math.min(255, finalPixel));
+
+                // Terapkan kembali ke piksel
+                data[i] = finalPixel;     // R
+                data[i + 1] = finalPixel; // G
+                data[i + 2] = finalPixel; // B
+                // Alpha tetap 255
+            }
+            
+            // Masukkan gambar "rusak" ke canvas
+            canvasCtx.putImageData(imageData, 0, 0);
+
+
+            // 3. LOGIKA TRACKING TANGAN (4 Titik)
+            let activeBox = null;
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length === 2) {
+                const points = [];
+                results.multiHandLandmarks.forEach(hand => {
+                    points.push(hand[4]); // Thumb Tip
+                    points.push(hand[8]); // Index Tip
+                });
+
+                let minX = Infinity, maxX = -Infinity;
+                let minY = Infinity, maxY = -Infinity;
+
+                points.forEach(pt => {
+                    const pixelX = (1 - pt.x) * canvasW; 
+                    const pixelY = pt.y * canvasH;
+
+                    if (pixelX < minX) minX = pixelX;
+                    if (pixelX > maxX) maxX = pixelX;
+                    if (pixelY < minY) minY = pixelY;
+                    if (pixelY > maxY) maxY = pixelY;
+                });
+
+                // Padding agar kotak tidak terlalu sempit
+                const padding = 25;
+                minX -= padding; maxX += padding;
+                minY -= padding; maxY += padding;
+
+                activeBox = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+            }
+
+            // 4. RENDER ASCII ART (YANG KEREN & SMOOTH)
+            // Ini akan merender di atas noise kasar tadi
+            if (activeBox && activeBox.w > 0 && activeBox.h > 0) {
+                
+                // A. BORDER KOTAK (Lebih tegas dari versi tipis, warna Putih/Hijau)
+                canvasCtx.strokeStyle = "#fff"; 
+                canvasCtx.lineWidth = 2;
+                canvasCtx.strokeRect(activeBox.x, activeBox.y, activeBox.w, activeBox.h);
+
+                // B. BACKGROUND GELAP (Agar ASCII terbaca jelas & smooth)
+                // Kita gunakan opacity 0.9 agar menutupi noise kasar di belakangnya
+                canvasCtx.fillStyle = "rgba(0, 0, 0, 0.9)";
+                canvasCtx.fillRect(activeBox.x, activeBox.y, activeBox.w, activeBox.h);
+
+                // C. DECORATIVE TEXT
+                canvasCtx.fillStyle = ASCII_COLOR;
+                canvasCtx.font = "12px 'Share Tech Mono'";
+                canvasCtx.fillText(">> DECRYPTING_SIGNAL...", activeBox.x, activeBox.y - 10);
+
+                // D. RENDER KARAKTER ASCII
+                canvasCtx.font = `${FONT_SIZE}px 'Share Tech Mono', monospace`;
+                canvasCtx.textBaseline = 'top';
+
+                const startX = Math.floor(activeBox.x / (FONT_SIZE * 0.6)) * (FONT_SIZE * 0.6);
+                const startY = Math.floor(activeBox.y / FONT_SIZE) * FONT_SIZE;
+                const endX = activeBox.x + activeBox.w;
+                const endY = activeBox.y + activeBox.h;
+
+                for (let y = startY; y < endY; y += FONT_SIZE) {
+                    for (let x = startX; x < endX; x += (FONT_SIZE * 0.6)) {
+                        
+                        // Bounds Check
+                        if (x < 0 || x >= canvasW || y < 0 || y >= canvasH) continue;
+                        if (x < activeBox.x || x > activeBox.x + activeBox.w || 
+                            y < activeBox.y || y > activeBox.y + activeBox.h) continue;
+
+                        const pixelIndex = (Math.floor(y) * canvasW + Math.floor(x)) * 4;
+                        
+                        if (pixelIndex < length) {
+                            // Kita mengambil brightness dari gambar yang SUDAH diberi noise (imageData)
+                            // Ini membuat karakter ASCII ikut "berkedip" sesuai noise, terlihat sangat organik
+                            const brightness = data[pixelIndex]; 
+
+                            const charIndex = Math.floor((brightness / 255) * (ASCII_CHARS.length - 1));
+                            const char = ASCII_CHARS[charIndex];
+
+                            if (char !== ' ') {
+                                canvasCtx.fillText(char, x, y);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /**
+         * INIT SYSTEM
+         */
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 1280,
+            height: 720
+        });
+
+        camera.start();
+
+    </script>
+</body>
+</html>
